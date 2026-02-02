@@ -1,3 +1,37 @@
+#if defined(__APPLE__)
+#include <objc/objc.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
+#include <SDL2/SDL_syswm.h>
+#include <stdint.h>
+static void cvn_disable_macos_fullscreen(SDL_Window *window) {
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
+    if (SDL_GetWindowWMInfo(window, &wmInfo)) {
+        id nswindow = wmInfo.info.cocoa.window;
+        if (nswindow) {
+            // Remove NSWindowStyleMaskFullScreenWindow (1 << 14) from styleMask
+            // Remove fullscreen style mask
+            SEL styleSel = sel_registerName("styleMask");
+            if (class_respondsToSelector(object_getClass(nswindow), styleSel)) {
+                uint64_t styleMask = ((uint64_t (*)(id, SEL))objc_msgSend)(nswindow, styleSel);
+                styleMask &= ~(1ULL << 14); // Remove NSWindowStyleMaskFullScreenWindow
+                SEL setStyleSel = sel_registerName("setStyleMask:");
+                if (class_respondsToSelector(object_getClass(nswindow), setStyleSel)) {
+                    ((void (*)(id, SEL, uint64_t))objc_msgSend)(nswindow, setStyleSel, styleMask);
+                }
+            }
+            // Set collectionBehavior to NSWindowCollectionBehaviorFullScreenNone (1 << 9)
+            SEL collSel = sel_registerName("setCollectionBehavior:");
+            if (class_respondsToSelector(object_getClass(nswindow), collSel)) {
+                ((void (*)(id, SEL, uint64_t))objc_msgSend)(nswindow, collSel, (1ULL << 9));
+            }
+        }
+    }
+}
+#else
+#define cvn_disable_macos_fullscreen(w)
+#endif
 #include "window.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,8 +49,17 @@ CVNWindowManager* cvn_window_init(const char *title, int width, int height, bool
     #define SDL_WINDOW_WIIU_GAMEPAD_ONLY 0x01000000
 #endif
 
+
     uint32_t flags = SDL_WINDOW_SHOWN;
+    /* Allow resizable window on all platforms except Wii U. Fullscreen only if requested and not macOS. */
+#if defined(__WIIU__)
+    /* Wii U: no resizable, no fullscreen */
+#else
+    flags |= SDL_WINDOW_RESIZABLE;
+    #if !defined(__APPLE__)
     if (fullscreen) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+    #endif
+#endif
 
     /* Create primary display (TV on Wii U) */
 #ifdef __WIIU__
@@ -37,6 +80,10 @@ CVNWindowManager* cvn_window_init(const char *title, int width, int height, bool
         wm->displays[CVN_DISPLAY_PRIMARY].window, -1,
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
     );
+
+#if defined(__APPLE__)
+    cvn_disable_macos_fullscreen(wm->displays[CVN_DISPLAY_PRIMARY].window);
+#endif
 
     if (!wm->displays[CVN_DISPLAY_PRIMARY].renderer) {
         fprintf(stderr, "Failed to create primary renderer: %s\n", SDL_GetError());

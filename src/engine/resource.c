@@ -91,19 +91,31 @@ SDL_Texture* cvn_resource_load_texture(CVNResourceManager *rm, SDL_Renderer *ren
     
     if (!surface) {
         CVN_LOG("ERROR: IMG_Load failed for %s: %s", path, IMG_GetError());
-        return NULL;
+        // Create a 128x128 surface with a random color as fallback
+        int w = 128, h = 128;
+        surface = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
+        if (surface) {
+            // Generate a random color
+            Uint32 color = SDL_MapRGBA(surface->format,
+                rand() % 256, rand() % 256, rand() % 256, 255);
+            SDL_FillRect(surface, NULL, color);
+            // Optionally, draw a big X or text to indicate missing
+        } else {
+            CVN_LOG("ERROR: Could not create fallback surface");
+            return NULL;
+        }
     }
-    
+
     CVN_LOG("Surface loaded successfully (%dx%d)", surface->w, surface->h);
-    
+
     SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
     SDL_FreeSurface(surface);
-    
+
     if (!texture) {
         CVN_LOG("ERROR: SDL_CreateTextureFromSurface failed: %s", SDL_GetError());
         return NULL;
     }
-    
+
     CVN_LOG("Texture created successfully");
     
     /* Cache the texture */
